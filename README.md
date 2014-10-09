@@ -13,6 +13,7 @@ Usage
 =====
 
 The program takes two arguments:
+
 1. The path to the original text file
 2. The path to the XML file containing GrAF annotations
 
