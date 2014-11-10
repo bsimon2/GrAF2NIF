@@ -21,21 +21,24 @@ public class GrAF2NIF {
 	
     private static final String nifCoreNS = "http://persistence.uni-leipzig.org/nlp2rdf/ontologies/nif-core#";
     private static final String xsd = "http://www.w3.org/2001/XMLSchema#";
+    private static final String penn = "http://purl.org/olia/penn.owl#";
     
-    private Map<String, String> annotationTypes;
+    private Map<String, String> literalAnnotationTypes;
+    //private Map<String, String> uriAnnotationTypes;
     
     private Model model;    
     
     public GrAF2NIF() {
     	
-    	annotationTypes = new HashMap<String,String>();
-    	annotationTypes.put("msd", "posTag");
-    	annotationTypes.put("base", "stem");
+    	literalAnnotationTypes = new HashMap<String,String>();
+    	literalAnnotationTypes.put("base", "stem");
+    	
     	
     	model = ModelFactory.createDefaultModel();
     	
     	model.setNsPrefix("nif", nifCoreNS);
     	model.setNsPrefix("xsd", xsd);
+    	model.setNsPrefix("penn", penn);
     	
     }
 
@@ -53,6 +56,12 @@ public class GrAF2NIF {
 		context.addLiteral(model.createProperty(nifCoreNS + "endIndex"), model.createTypedLiteral(text.length(), XSDDatatype.XSDint));	
 		context.addLiteral(model.createProperty(nifCoreNS + "isString"), model.createTypedLiteral(text, XSDDatatype.XSDstring));
 		
+		
+		/* This loop now caches the previous word objects and
+		 * links them via the nif:previousWord / nif:nextWord properties.
+		 */
+		Resource previousWord = null;
+		
 		for (IRegion r: graph.getRegions()) {
 
 			int a1 = ((CharacterAnchor) r.getAnchor(0)).getOffset().intValue();
@@ -67,6 +76,14 @@ public class GrAF2NIF {
 			String span = text.substring(a1, a2);
 			res.addLiteral(model.createProperty(nifCoreNS + "anchorOf"), model.createTypedLiteral(span, XSDDatatype.XSDstring));
 			id2uri.put(r.getId(), res.getURI());
+			
+			if(previousWord != null) {
+				res.addProperty(model.createProperty(nifCoreNS + "previousWord"), previousWord);
+				previousWord.addProperty(model.createProperty(nifCoreNS + "nextWord"), res);
+				
+			}
+			
+			previousWord = res;
 
 		}
 
@@ -76,9 +93,13 @@ public class GrAF2NIF {
 					if (id2uri.containsKey(t.getId())) {
 						for (IAnnotation a: n.annotations()) {							
 							for (IFeature f: a.features()) {
-								if (annotationTypes.containsKey(f.getName())) {
+								
+								/* annotations are separated into literals and non-literals. 
+								 * At the moment, the only non-literal type are pos tags
+								 * that use the Penn pos tag vocabulary inside OLiA. */
+								if (literalAnnotationTypes.containsKey(f.getName())) {
 									Resource r = model.getResource(id2uri.get(t.getId()));
-									r.addLiteral(model.createProperty(nifCoreNS + annotationTypes.get(f.getName())), 
+									r.addLiteral(model.createProperty(nifCoreNS + literalAnnotationTypes.get(f.getName())), 
 											model.createTypedLiteral(f.getValue(), XSDDatatype.XSDstring));
 								}
 								
