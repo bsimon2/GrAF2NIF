@@ -81,6 +81,15 @@ public class GrAF2NIF {
 									r.addLiteral(model.createProperty(nifCoreNS + annotationTypes.get(f.getName())), 
 											model.createTypedLiteral(f.getValue(), XSDDatatype.XSDstring));
 								}
+								
+								/* This could be better, since it's hardcoded to Penn now,
+								 * but its ok for the moment. */
+								if("msd".equals(f.getName())) {
+									Resource r = model.getResource(id2uri.get(t.getId()));
+									Resource oliaTarget = model.createResource(penn + f.getValue());
+									r.addProperty(model.createProperty(nifCoreNS + "oliaLink"), oliaTarget);
+								}
+								
 							}
 						}
 					}
