@@ -1,8 +1,10 @@
+package graf2nif;
 import java.io.StringWriter;
-import java.util.HashMap;
-import java.util.Map;
+
+import mascAnnotations.MASCAnnotations;
 
 import org.xces.graf.api.IAnnotation;
+import org.xces.graf.api.IEdge;
 import org.xces.graf.api.IFeature;
 import org.xces.graf.api.IGraph;
 import org.xces.graf.api.ILink;
@@ -18,110 +20,125 @@ import com.hp.hpl.jena.vocabulary.RDF;
 
 
 public class GrAF2NIF {
-	
-    private static final String nifCoreNS = "http://persistence.uni-leipzig.org/nlp2rdf/ontologies/nif-core#";
-    private static final String xsd = "http://www.w3.org/2001/XMLSchema#";
-    private static final String penn = "http://purl.org/olia/penn.owl#";
-    
-    private Map<String, String> literalAnnotationTypes;
-    //private Map<String, String> uriAnnotationTypes;
-    
-    private Model model;    
-    
-    public GrAF2NIF() {
-    	
-    	literalAnnotationTypes = new HashMap<String,String>();
-    	literalAnnotationTypes.put("base", "stem");
-    	
-    	
-    	model = ModelFactory.createDefaultModel();
-    	
-    	model.setNsPrefix("nif", nifCoreNS);
-    	model.setNsPrefix("xsd", xsd);
-    	model.setNsPrefix("penn", penn);
-    	
-    }
+
+	private Model model;    
+
+	public GrAF2NIF() {
+
+		model = ModelFactory.createDefaultModel();
+
+		model.setNsPrefix("nif", NameSpaces.nifCoreNS);
+		model.setNsPrefix("xsd", NameSpaces.xsd);
+		model.setNsPrefix("lider", NameSpaces.lider);
+		model.setNsPrefix("rdfs", NameSpaces.rdfs);
+		model.setNsPrefix("lexinfo", "http://www.lexinfo.net/ontology/2.0/lexinfo#");
+
+	}
 
 	public String convert(IGraph graph, String text, String prefix) {
 
 		model.removeAll();
 
-		Map<String, String> id2uri = new HashMap<String, String>();
+		String contextId = prefix + "#char=0,";		
+		addResource(NameSpaces.nifCoreNS + "Context", contextId, "", text, null, 0, text.length());
 
-		String contextId = prefix + "#char=0,";
-		Resource context = model.createResource(contextId);
-		context.addProperty(RDF.type, model.createResource(nifCoreNS + "Context"));
-		context.addProperty(RDF.type, model.createResource(nifCoreNS + "RFC5147String"));
-		context.addLiteral(model.createProperty(nifCoreNS + "beginIndex"), model.createTypedLiteral(0, XSDDatatype.XSDint));
-		context.addLiteral(model.createProperty(nifCoreNS + "endIndex"), model.createTypedLiteral(text.length(), XSDDatatype.XSDint));	
-		context.addLiteral(model.createProperty(nifCoreNS + "isString"), model.createTypedLiteral(text, XSDDatatype.XSDstring));
-		
-		
-		/* This loop now caches the previous word objects and
-		 * links them via the nif:previousWord / nif:nextWord properties.
-		 */
-		Resource previousWord = null;
-		
-		for (IRegion r: graph.getRegions()) {
-
-			int a1 = ((CharacterAnchor) r.getAnchor(0)).getOffset().intValue();
-			int a2 = ((CharacterAnchor) r.getAnchor(1)).getOffset().intValue();
-			String identifier = prefix + "#char=" + a1 + "," + a2;
-			Resource res = model.createResource(identifier);
-			res.addProperty(RDF.type, model.createResource(nifCoreNS + "Word"));
-			res.addProperty(RDF.type, model.createResource(nifCoreNS + "RFC5147String"));
-			res.addProperty(model.createProperty(nifCoreNS + "referenceContext"), context);
-			res.addLiteral(model.createProperty(nifCoreNS + "beginIndex"), model.createTypedLiteral(a1, XSDDatatype.XSDint));
-			res.addLiteral(model.createProperty(nifCoreNS + "endIndex"), model.createTypedLiteral(a2, XSDDatatype.XSDint));			
-			String span = text.substring(a1, a2);
-			res.addLiteral(model.createProperty(nifCoreNS + "anchorOf"), model.createTypedLiteral(span, XSDDatatype.XSDstring));
-			id2uri.put(r.getId(), res.getURI());
-			
-			if(previousWord != null) {
-				res.addProperty(model.createProperty(nifCoreNS + "previousWord"), previousWord);
-				previousWord.addProperty(model.createProperty(nifCoreNS + "nextWord"), res);
-				
-			}
-			
-			previousWord = res;
-
-		}
+		MASCAnnotations masc = new MASCAnnotations();
 
 		for (INode n: graph.getNodes()) {
-			for (ILink l: n.getLinks()) {
-				for (IRegion t: l.getRegions()) {					
-					if (id2uri.containsKey(t.getId())) {
-						for (IAnnotation a: n.annotations()) {							
-							for (IFeature f: a.features()) {
-								
-								/* annotations are separated into literals and non-literals. 
-								 * At the moment, the only non-literal type are pos tags
-								 * that use the Penn pos tag vocabulary inside OLiA. */
-								if (literalAnnotationTypes.containsKey(f.getName())) {
-									Resource r = model.getResource(id2uri.get(t.getId()));
-									r.addLiteral(model.createProperty(nifCoreNS + literalAnnotationTypes.get(f.getName())), 
-											model.createTypedLiteral(f.getValue(), XSDDatatype.XSDstring));
-								}
-								
-								/* This could be better, since it's hardcoded to Penn now,
-								 * but its ok for the moment. */
-								if("msd".equals(f.getName())) {
-									Resource r = model.getResource(id2uri.get(t.getId()));
-									Resource oliaTarget = model.createResource(penn + f.getValue());
-									r.addProperty(model.createProperty(nifCoreNS + "oliaLink"), oliaTarget);
-								}
-								
-							}
+			
+			if (n.outDegree() == 0) {
+				for (ILink l: n.getLinks()) {
+					for (IRegion r: l.getRegions()) {
+
+						int start = ((CharacterAnchor) r.getStart()).getOffset().intValue();
+						int end = ((CharacterAnchor) r.getEnd()).getOffset().intValue();
+						end = Math.min(end, text.length()-1);
+						
+						String identifier = prefix + "#char=" + start + "," + end;
+						String span = text.substring(start, end);
+						Resource res = addResource(NameSpaces.nifCoreNS + "RFC5147String", identifier, contextId, span, prefix, start, end);
+						
+						addAnnotations(masc, n, res);
+
+					}
+				} 
+				
+			} else {
+
+				Resource phrase = null;
+				int pstart = text.length();
+				int pend = 0;
+				for (IEdge e: n.getOutEdges()) {
+					if (e.getTo().getLinks().size() == 0) continue;
+					for (ILink to: e.getTo().getLinks()) {
+						for (IRegion target: to.getRegions()) {	
+							int a1 = ((CharacterAnchor) target.getStart()).getOffset().intValue();
+							int a2 = ((CharacterAnchor) target.getEnd()).getOffset().intValue();							
+							if (a1 < pstart) pstart = a1;
+							if (a2 > pend) pend = a2;		
 						}
 					}
 				}
+				
+				if (!(pstart == text.length() || pend == 0)) {
+					String chunk = text.substring(pstart, pend);					
+					phrase = addResource(NameSpaces.nifCoreNS + "RFC5147String", prefix + "#char=" + pstart + "," + pend, contextId, chunk, prefix, pstart, pend);					
+				}
+				
+				if (phrase != null)	addAnnotations(masc, n, phrase);
+				
 			}
 		}
-		
+
+
 		StringWriter out = new StringWriter();
 		model.write(out, "TURTLE");
 		return out.toString();
 
 	}
+	
+	private Resource addResource(String type, String prefix, String context, String text, String label, int start, int end) {
+		
+		Resource r = model.createResource(prefix);							
+		r.addProperty(RDF.type, model.createResource(NameSpaces.nifCoreNS + "RFC5147String"));
+		r.addLiteral(model.createProperty(NameSpaces.nifCoreNS + "beginIndex"), model.createTypedLiteral(start, XSDDatatype.XSDint));
+		r.addLiteral(model.createProperty(NameSpaces.nifCoreNS + "endIndex"), model.createTypedLiteral(end, XSDDatatype.XSDint));	
+		if (label != null) r.addLiteral(model.createProperty(NameSpaces.rdfs + "label"), model.createTypedLiteral(label, XSDDatatype.XSDstring));
+		if (type.equals(NameSpaces.nifCoreNS + "Context")) {
+			r.addProperty(RDF.type, model.createResource(NameSpaces.nifCoreNS + "Context"));
+			r.addLiteral(model.createProperty(NameSpaces.nifCoreNS + "isString"), model.createTypedLiteral(text, XSDDatatype.XSDstring));
+		} else {
+			r.addProperty(model.createProperty(NameSpaces.nifCoreNS + "referenceContext"), context);
+			r.addLiteral(model.createProperty(NameSpaces.nifCoreNS + "anchorOf"), model.createTypedLiteral(text, XSDDatatype.XSDstring));
+		}	
+		
+		return r;
+		
+	}
+	
+	private void addAnnotations(Annotations annotations, INode n, Resource r) {
+		
+		for (IAnnotation a: n.annotations()) {
+
+			Annotation an = annotations.getAnnotation(a.getAnnotationSpace().getName(), a.getLabel(), a.getId().split("-")[0]);			
+			if (an == null)	continue;		
+			
+			for (String obj: an.getTypes())	r.addProperty(model.createProperty(NameSpaces.rdf+"type"), model.createResource(obj));
+			
+			if (an.hasGenericType()) r.addProperty(model.createProperty(NameSpaces.rdf+"type"), model.createResource(an.getGenericType(a.getLabel())));
+			
+			for (IFeature f: a.features()) {
+				if(an.hasFeature(f.getName())) {
+					if(an.isLiteral(f.getName())) {
+						r.addLiteral(model.createProperty(an.getFeatureProperty(f.getName())), model.createTypedLiteral(an.getFeatureObject(f.getName(), (String)f.getValue()), XSDDatatype.XSDstring));
+					} else {
+						r.addProperty(model.createProperty(an.getFeatureProperty(f.getName())), model.createResource(an.getFeatureObject(f.getName(), (String)f.getValue())));
+					}
+				}
+			}
+		}
+		
+	}
 
 }
+
