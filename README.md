@@ -12,8 +12,10 @@ Requirements
 Usage
 =====
 
-The program takes two arguments:
+Required arguments:
 
-1. The path to the original text file
-2. The path to the XML file containing GrAF annotations
+1. The path to the resource header
+2. The path to the document header
+3. The path to the output file
+4. The prefix used to form URIs
 
